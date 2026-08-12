@@ -1,0 +1,10 @@
+sgp4
+numpy
+scipy
+skyfield
+shapely
+requests
+psycopg2-binary
+asyncpg
+sqlalchemy
+pytest
