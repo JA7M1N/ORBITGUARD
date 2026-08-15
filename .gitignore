@@ -60,5 +60,11 @@ orbitguard-frontend/dist/
 orbitguard-frontend/.env.local
 orbitguard-frontend/.env.*.local
 
+
 # Release archives
 OrbitGuard.zip
+
+# Ignore all markdown files except README.md
+*.md
+docs/**/*.md
+!README.md
