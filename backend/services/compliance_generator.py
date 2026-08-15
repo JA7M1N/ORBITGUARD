@@ -1,9 +1,10 @@
 import os
 import json
+import hashlib
 from datetime import datetime, timezone
 import ollama
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -117,6 +118,18 @@ def compile_pdf_document(filing_data: dict) -> str:
         spaceAfter=8
     )
     
+    # Decorative Header Band
+    header_band_data = [[""]]
+    header_band = Table(header_band_data, colWidths=[500], rowHeights=[4])
+    header_band.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#1A237E')),
+        ('PADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(header_band)
+    story.append(Spacer(1, 10))
+
     # Add Document Title
     story.append(Paragraph("INSPACE-CAM-2026 Collision Avoidance Filing", title_style))
     story.append(Spacer(1, 10))
@@ -155,12 +168,79 @@ def compile_pdf_document(filing_data: dict) -> str:
             formatted_para = clean_para.replace('\n', '<br/>')
             story.append(Paragraph(formatted_para, body_style))
             
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 15))
     
-    # Add Signature Block
-    story.append(Paragraph("Authorization & Sign-off", section_title_style))
-    story.append(Spacer(1, 10))
+    # 4.5. Add Reproducible Scientific Parameters Section
+    story.append(Paragraph("Astrometric State Vectors & Covariance Matrices (TCA Epoch)", section_title_style))
+    story.append(Paragraph("Below are the exact Earth-Centered Inertial (ECI) position (km) and velocity (km/s) state vectors and uncertainty covariances used to calculate the collision probability, ensuring absolute reproducibility for auditing and regulatory verification.", body_style))
+    story.append(Spacer(1, 5))
     
+    p_state = filing_data.get("primary_state")
+    s_state = filing_data.get("secondary_state")
+    cov = filing_data.get("covariance")
+    
+    p_pos_str = f"[{', '.join(f'{x:.4f}' for x in p_state['position'])}]" if (p_state and "position" in p_state) else "N/A"
+    p_vel_str = f"[{', '.join(f'{x:.6f}' for x in p_state['velocity'])}]" if (p_state and "velocity" in p_state) else "N/A"
+    
+    s_pos_str = f"[{', '.join(f'{x:.4f}' for x in s_state['position'])}]" if (s_state and "position" in s_state) else "N/A"
+    s_vel_str = f"[{', '.join(f'{x:.6f}' for x in s_state['velocity'])}]" if (s_state and "velocity" in s_state) else "N/A"
+    
+    p_cov_list = cov.get("p_cov") if cov else None
+    s_cov_list = cov.get("s_cov") if cov else None
+    
+    def format_cov(cov_mat):
+        if not cov_mat:
+            return "N/A"
+        return "<br/>".join(f"[{', '.join(f'{val:.2e}' for val in row)}]" for row in cov_mat)
+        
+    p_cov_str = format_cov(p_cov_list)
+    s_cov_str = format_cov(s_cov_list)
+    
+    scientific_table_data = [
+        [
+            Paragraph("<b>Parameter</b>", body_style),
+            Paragraph("<b>Primary Spacecraft</b>", body_style),
+            Paragraph("<b>Secondary Spacecraft</b>", body_style)
+        ],
+        [
+            Paragraph("<b>ECI Position Vector (km)</b>", body_style),
+            Paragraph(p_pos_str, body_style),
+            Paragraph(s_pos_str, body_style)
+        ],
+        [
+            Paragraph("<b>ECI Velocity Vector (km/s)</b>", body_style),
+            Paragraph(p_vel_str, body_style),
+            Paragraph(s_vel_str, body_style)
+        ],
+        [
+            Paragraph("<b>ECI Covariance Matrix (km^2)</b>", body_style),
+            Paragraph(p_cov_str, body_style),
+            Paragraph(s_cov_str, body_style)
+        ]
+    ]
+    
+    scientific_table = Table(scientific_table_data, colWidths=[150, 175, 175])
+    scientific_table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#BDBDBD')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#ECEFF1')),
+        ('PADDING', (0,0), (-1,-1), 5),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+    ]))
+    
+    sci_block = KeepTogether([
+        Paragraph("Astrometric State Vectors & Covariance Matrices (TCA Epoch)", section_title_style),
+        Paragraph("Below are the exact Earth-Centered Inertial (ECI) position (km) and velocity (km/s) state vectors and uncertainty covariances used to calculate the collision probability, ensuring absolute reproducibility for auditing and regulatory verification.", body_style),
+        Spacer(1, 5),
+        scientific_table
+    ])
+    story.append(sci_block)
+    story.append(Spacer(1, 15))
+    
+    # Compute SHA-256 digital signature hash for audit verification
+    hash_payload = f"{filing_data.get('id')}-{p_pos_str}-{s_pos_str}-{filing_data.get('operator')}"
+    sha_hash = hashlib.sha256(hash_payload.encode('utf-8')).hexdigest()
+
+    # Add Signature Block (wrapped in KeepTogether to prevent split)
     sig_data = [
         [
             Paragraph("_______________________________________<br/>Authorized Operator Signature", body_style),
@@ -168,7 +248,15 @@ def compile_pdf_document(filing_data: dict) -> str:
         ]
     ]
     sig_table = Table(sig_data, colWidths=[350, 150])
-    story.append(sig_table)
+    
+    sig_block = KeepTogether([
+        Paragraph("Authorization & Sign-off", section_title_style),
+        Spacer(1, 5),
+        Paragraph(f"<b>Digital Audit Fingerprint (SHA-256):</b> <code>{sha_hash}</code>", body_style),
+        Spacer(1, 10),
+        sig_table
+    ])
+    story.append(sig_block)
     
     # Build Document
     doc.build(story)

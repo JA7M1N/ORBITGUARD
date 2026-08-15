@@ -1,5 +1,6 @@
 import math
 import heapq
+import asyncio
 from typing import List, Dict, Tuple
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -66,10 +67,10 @@ def to_polar(x: float, y: float) -> Tuple[float, float]:
     lon = (lon + 180) % 360 - 180
     return lat, lon
 
-def get_cost(x: float, y: float) -> float:
+def get_cost(x: float, y: float, start_xy: Tuple[float, float] = None, end_xy: Tuple[float, float] = None) -> float:
     """
     Computes traversal cost. Returns infinity if within crater core,
-    or scaled cost if close to crater rim (steep slope hazard).
+    unless it is very close to start or end waypoints (to allow reaching targets).
     """
     lat, lon = to_polar(x, y)
     
@@ -83,8 +84,23 @@ def get_cost(x: float, y: float) -> float:
         
         c_rad = crater["radius"]
         if dist_km <= c_rad:
-            # Inside crater core (impassable/dangerous - high penalty)
-            max_penalty = max(max_penalty, 20.0)
+            # Inside crater core (impassable/dangerous)
+            # If coordinates are close (within 5.0 km) to start or end, allow traversal with high penalty (20.0).
+            # Otherwise, treat as mathematically impassable.
+            is_near_endpoint = False
+            if start_xy:
+                dist_start = math.sqrt((x - start_xy[0])**2 + (y - start_xy[1])**2) * DEG_TO_KM
+                if dist_start < 5.0:
+                    is_near_endpoint = True
+            if end_xy:
+                dist_end = math.sqrt((x - end_xy[0])**2 + (y - end_xy[1])**2) * DEG_TO_KM
+                if dist_end < 5.0:
+                    is_near_endpoint = True
+                    
+            if is_near_endpoint:
+                max_penalty = max(max_penalty, 20.0)
+            else:
+                return float('inf')
         elif dist_km < c_rad * 1.3:
             # Steep slope near crater rim (traversal hazard)
             ratio = (dist_km - c_rad) / (c_rad * 0.3) # 0 to 1
@@ -140,7 +156,7 @@ def a_star_search(start_xy: Tuple[float, float], end_xy: Tuple[float, float]) ->
         for dx, dy in directions:
             nx, ny = round_to_grid(cx + dx), round_to_grid(cy + dy)
             
-            cost = get_cost(nx, ny)
+            cost = get_cost(nx, ny, start_xy, end_xy)
             if cost == float('inf'):
                 continue
                 
@@ -195,7 +211,7 @@ async def post_lunar_pathfind(payload: PathfindPayload):
     
     for xy in xy_waypoints:
         lat, lon = to_polar(xy[0], xy[1])
-        cost = get_cost(xy[0], xy[1])
+        cost = get_cost(xy[0], xy[1], start_xy, end_xy)
         
         # Calculate slope gradient approximation
         # cost = 1.0 + 15 * (1.0 - ratio) -> max is 16.0
@@ -229,3 +245,158 @@ async def post_lunar_pathfind(payload: PathfindPayload):
             "safety_margin_pct": round(max(0.0, 100.0 - max_slope_gradient * 3.0), 1)
         }
     }
+
+
+# Earth-Moon gravity parameters (ECI Barycentric Frame Constants)
+MU_E = 398600.4418  # Earth gravity constant (km^3/s^2)
+MU_M = 4902.8000    # Moon gravity constant (km^3/s^2)
+D_EM = 384400.0     # Mean Earth-Moon Distance (km)
+T_MOON = 27.32166 * 86400.0  # Moon orbit period (seconds)
+OMEGA_MOON = (2.0 * math.pi) / T_MOON  # Moon mean motion (rad/s)
+
+
+class CislunarPropagateRequest(BaseModel):
+    x: float
+    y: float
+    z: float
+    vx: float
+    vy: float
+    vz: float
+    duration_days: float
+
+
+def derivatives(t: float, y: List[float]) -> List[float]:
+    x, y_coord, z, vx, vy, vz = y
+    
+    # Moon position relative to Earth at time t
+    theta = OMEGA_MOON * t
+    mx = D_EM * math.cos(theta)
+    my = D_EM * math.sin(theta)
+    mz = 0.0
+    
+    # Distance magnitudes
+    dist_e = math.sqrt(x*x + y_coord*y_coord + z*z)
+    dist_m = math.sqrt((x - mx)**2 + (y_coord - my)**2 + (z - mz)**2)
+    
+    # Singularity threshold avoidance
+    eps = 1e-5
+    
+    # Gravitational pulls
+    ax_e = -MU_E * x / (dist_e**3 + eps)
+    ay_e = -MU_E * y_coord / (dist_e**3 + eps)
+    az_e = -MU_E * z / (dist_e**3 + eps)
+    
+    ax_m = -MU_M * (x - mx) / (dist_m**3 + eps)
+    ay_m = -MU_M * (y_coord - my) / (dist_m**3 + eps)
+    az_m = -MU_M * (z - mz) / (dist_m**3 + eps)
+    
+    return [
+        vx, vy, vz,
+        ax_e + ax_m,
+        ay_e + ay_m,
+        az_e + az_m
+    ]
+
+
+def run_cislunar_propagation(payload: CislunarPropagateRequest):
+    # Time step: 180 seconds (3 minutes) for stable RK4 integration
+    dt = 180.0
+    t_end = payload.duration_days * 86400.0
+    
+    y_curr = [payload.x, payload.y, payload.z, payload.vx, payload.vy, payload.vz]
+    t = 0.0
+    
+    trajectory = []
+    moon_trajectory = []
+    
+    # Record once every 10 steps to keep transfer packages lightweight
+    record_every = 10
+    step_count = 0
+    
+    min_dist_to_moon = float('inf')
+    min_dist_to_earth = float('inf')
+    
+    while t < t_end:
+        x, y, z, vx, vy, vz = y_curr
+        r_sc = math.sqrt(x*x + y*y + z*z)
+        
+        # Moon current position vector
+        theta = OMEGA_MOON * t
+        mx = D_EM * math.cos(theta)
+        my = D_EM * math.sin(theta)
+        mz = 0.0
+        
+        dist_to_moon = math.sqrt((x - mx)**2 + (y - my)**2 + (z - mz)**2)
+        if dist_to_moon < min_dist_to_moon:
+            min_dist_to_moon = dist_to_moon
+        if r_sc < min_dist_to_earth:
+            min_dist_to_earth = r_sc
+            
+        if step_count % record_every == 0:
+            trajectory.append({
+                "x": round(x, 1),
+                "y": round(y, 1),
+                "z": round(z, 1)
+            })
+            moon_trajectory.append({
+                "x": round(mx, 1),
+                "y": round(my, 1),
+                "z": round(mz, 1)
+            })
+            
+        # Runge-Kutta 4th-Order Integration
+        k1 = derivatives(t, y_curr)
+        y2 = [y_curr[i] + k1[i] * dt / 2.0 for i in range(6)]
+        k2 = derivatives(t + dt / 2.0, y2)
+        y3 = [y_curr[i] + k2[i] * dt / 2.0 for i in range(6)]
+        k3 = derivatives(t + dt / 2.0, y3)
+        y4 = [y_curr[i] + k3[i] * dt for i in range(6)]
+        k4 = derivatives(t + dt, y4)
+        
+        for i in range(6):
+            y_curr[i] += (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]) * dt / 6.0
+            
+        t += dt
+        step_count += 1
+        
+    # Append final coordinates
+    x, y, z, _, _, _ = y_curr
+    trajectory.append({"x": round(x, 1), "y": round(y, 1), "z": round(z, 1)})
+    theta = OMEGA_MOON * t
+    moon_trajectory.append({"x": round(D_EM * math.cos(theta), 1), "y": round(D_EM * math.sin(theta), 1), "z": 0.0})
+    
+    # Establish safety indicators
+    status = "NOMINAL"
+    warning_msg = None
+    if min_dist_to_moon < 1737.4 + 200.0:  # Lunar surface impact threshold
+        status = "CRITICAL HAZARD"
+        warning_msg = f"Collision risk! Spacecraft trajectory breaches lunar exclusion boundary (min distance: {min_dist_to_moon:.1f} km)."
+    elif min_dist_to_earth < 6378.137 + 100.0:  # Earth reentry threshold
+        status = "CRITICAL HAZARD"
+        warning_msg = f"Reentry trajectory! Spacecraft altitude drops below Earth atmospheric boundary (min distance: {min_dist_to_earth:.1f} km)."
+    elif min_dist_to_moon < 10000.0:
+        status = "WARNING"
+        warning_msg = f"Lunar proximity warning: Trajectory intercepts lunar gravitational influence domain (min distance: {min_dist_to_moon:.1f} km)."
+        
+    # Compute approximation of energy barycentric state
+    v_sq = payload.vx**2 + payload.vy**2 + payload.vz**2
+    r1 = math.sqrt(payload.x**2 + payload.y**2 + payload.z**2)
+    r2 = math.sqrt((payload.x - D_EM)**2 + payload.y**2 + payload.z**2)
+    energy = 0.5 * v_sq - MU_E / r1 - MU_M / r2
+    
+    return {
+        "status": "success",
+        "trajectory": trajectory,
+        "moon_trajectory": moon_trajectory,
+        "metrics": {
+            "minimum_moon_distance_km": round(min_dist_to_moon, 1),
+            "minimum_earth_distance_km": round(min_dist_to_earth, 1),
+            "energy_state_jacobi": round(energy, 4),
+            "safety_status": status,
+            "warning_message": warning_msg
+        }
+    }
+
+@router.post("/propagate")
+async def post_cislunar_propagate(payload: CislunarPropagateRequest):
+    return await asyncio.to_thread(run_cislunar_propagation, payload)

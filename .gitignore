@@ -59,3 +59,6 @@ orbitguard-frontend/node_modules/
 orbitguard-frontend/dist/
 orbitguard-frontend/.env.local
 orbitguard-frontend/.env.*.local
+
+# Release archives
+OrbitGuard.zip

@@ -6,6 +6,17 @@
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-heading: 'Space Grotesk', sans-serif;
   
+  /* Space Design System Tokens */
+  --color-slate-950: #020617;
+  --color-slate-50: #f8fafc;
+  
+  --glass-bg: rgba(15, 23, 42, 0.4);
+  --glass-bg-hover: rgba(30, 41, 59, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-border-hover: rgba(59, 130, 246, 0.3);
+  --glass-blur: 16px;
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  
   color-scheme: dark;
 }
 
@@ -13,8 +24,8 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--font-sans);
-  background-color: #020617; /* Space Dark Slate 950 */
-  color: #f8fafc; /* Slate 50 */
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-50);
   overflow-x: hidden;
 }
 
@@ -24,16 +35,16 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Custom design system classes */
 .glassmorphism {
-  background: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .glassmorphism-hover:hover {
-  background: rgba(30, 41, 59, 0.5);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-hover);
   box-shadow: 0 0 15px rgba(59, 130, 246, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -112,4 +123,20 @@ h1, h2, h3, h4, h5, h6 {
 .glow-border-red {
   border: 1px solid rgba(239, 68, 68, 0.2);
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.05);
+}
+
+/* Smooth Slide-In Keyframes and Utility Class */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

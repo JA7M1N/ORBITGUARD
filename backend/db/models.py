@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import declarative_base, relationship
 from backend.config import settings
@@ -39,8 +40,8 @@ class StateVector(Base):
     __tablename__ = 'state_vectors'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    norad_id = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False)
-    epoch = Column(DateTime, nullable=False)
+    norad_id = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False, index=True)
+    epoch = Column(DateTime, nullable=False, index=True)
     
     # 3D position [x,y,z] in km
     position_x = Column(Float, nullable=False)
@@ -60,8 +61,8 @@ class ConjunctionEvent(Base):
     __tablename__ = 'conjunction_events'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    primary_norad = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False)
-    secondary_norad = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False)
+    primary_norad = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False, index=True)
+    secondary_norad = Column(Integer, ForeignKey('satellites.norad_id', ondelete='CASCADE'), nullable=False, index=True)
     tca = Column(DateTime, nullable=False)
     miss_distance = Column(Float, nullable=False)
     
@@ -103,3 +104,19 @@ class ComplianceFiling(Base):
     pdf_path = Column(String(255))
     status = Column(String(50), nullable=False)
     submitted_at = Column(DateTime, nullable=False)
+
+
+class ManeuverNegotiation(Base):
+    __tablename__ = 'maneuver_negotiations'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conjunction_id = Column(Integer, ForeignKey('conjunction_events.id', ondelete='CASCADE'), nullable=False, index=True)
+    status = Column(String(50), default="Proposed") # "Proposed", "Accepted", "Rejected", "Completed"
+    
+    primary_maneuver = Column(JSON, nullable=True) # { dv_radial, dv_in_track, dv_cross_track, epoch }
+    primary_status = Column(String(50), default="Pending") # "Pending", "Approved", "Declined"
+    
+    secondary_maneuver = Column(JSON, nullable=True) # { dv_radial, dv_in_track, dv_cross_track, epoch }
+    secondary_status = Column(String(50), default="Pending") # "Pending", "Approved", "Declined"
+    
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)

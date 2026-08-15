@@ -49,6 +49,16 @@ export interface ConjunctionDetails extends ConjunctionEvent {
     name: string;
     operator: string;
   };
+  explain?: {
+    miss_distance_km: number;
+    sigma_major: number;
+    sigma_minor: number;
+    pc_terms: {
+      u: number;
+      alpha: number;
+      beta: number;
+    };
+  };
 }
 
 export interface ReentryCandidate {

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import satellites, conjunctions, reentry, solar, ws_swarm, compliance, copilot, lunar
+from backend.routers import satellites, conjunctions, reentry, solar, ws_swarm, compliance, copilot, lunar, negotiations, deorbit, refinement
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -11,8 +11,9 @@ async def lifespan(app: FastAPI):
     On startup, verify if the database contains any satellites.
     If empty or uninitialized, run the database seeders to populate initial demo data.
     """
-    from backend.db.models import Satellite
-    from sqlalchemy import select
+    from backend.db.models import Satellite, StateVector, ConjunctionEvent, ReentryAlert, ComplianceFiling
+    from sqlalchemy import select, func
+    from datetime import datetime, timezone
     from backend.seed_db import seed as seed_db
     from backend.seed_reentry import seed as seed_reentry
     from backend.db.connection import AsyncSessionLocal
@@ -20,14 +21,41 @@ async def lifespan(app: FastAPI):
     run_seeding = False
     async with AsyncSessionLocal() as session:
         try:
+            # 1. Check if we have any satellites
             result = await session.execute(select(Satellite).limit(1))
             sat = result.scalars().first()
             if not sat:
                 run_seeding = True
             else:
-                print("OrbitGuard: DB data detected. Skipping automatic seed.")
+                # 2. Check if the state vectors are outdated
+                max_epoch_res = await session.execute(select(func.max(StateVector.epoch)))
+                max_epoch = max_epoch_res.scalar()
+                
+                if max_epoch:
+                    # Make it timezone-aware if naive
+                    if max_epoch.tzinfo is None:
+                        max_epoch = max_epoch.replace(tzinfo=timezone.utc)
+                    
+                    now_utc = datetime.now(timezone.utc)
+                    
+                    if max_epoch < now_utc:
+                        print(f"OrbitGuard: DB contains outdated state vectors (latest: {max_epoch}, now: {now_utc}). Clearing and re-seeding...")
+                        
+                        # Clear old records to allow fresh generation starting today
+                        await session.execute(StateVector.__table__.delete())
+                        await session.execute(ConjunctionEvent.__table__.delete())
+                        await session.execute(ReentryAlert.__table__.delete())
+                        await session.execute(ComplianceFiling.__table__.delete())
+                        await session.execute(Satellite.__table__.delete())
+                        await session.commit()
+                        
+                        run_seeding = True
+                    else:
+                        print("OrbitGuard: DB data detected and up-to-date. Skipping automatic seed.")
+                else:
+                    run_seeding = True
         except Exception as e:
-            print(f"OrbitGuard: Tables not initialized yet ({e}). Triggering schema generation and seeding...")
+            print(f"OrbitGuard: Startup check failed or tables not initialized ({e}). Triggering schema generation and seeding...")
             run_seeding = True
 
     if run_seeding:
@@ -45,11 +73,15 @@ async def lifespan(app: FastAPI):
     yield
 
 # 1. Instantiate the FastAPI application
+is_dev = os.getenv("ENV", "development").lower() == "development"
 app = FastAPI(
     title="OrbitGuard Space Safety API",
     description="REST API serving Space Situational Awareness, conjunction hazards, reentry alerts, and solar weather data.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_url="/openapi.json" if is_dev else None,
+    docs_url="/docs" if is_dev else None,
+    redoc_url="/redoc" if is_dev else None
 )
 
 # 2. Configure CORS middleware with strict domain restrictions for production
@@ -86,6 +118,9 @@ app.include_router(ws_swarm.router)
 app.include_router(compliance.router)
 app.include_router(copilot.router)
 app.include_router(lunar.router)
+app.include_router(negotiations.router)
+app.include_router(deorbit.router)
+app.include_router(refinement.router)
 
 # 4. Mount static model assets so Cesium can resolve relative paths
 from fastapi.staticfiles import StaticFiles

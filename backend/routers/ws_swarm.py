@@ -39,3 +39,38 @@ async def ws_run_swarm(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
+
+active_connections: list[WebSocket] = []
+
+@router.websocket("/api/ws/alerts")
+async def ws_alerts(websocket: WebSocket):
+    """
+    WebSocket endpoint that streams real-time space safety alerts and notifications.
+    """
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            # Receive text to keep connection alive or handle client heartbeats
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+    except Exception:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+
+async def broadcast_alert(message: dict):
+    """
+    Utility function to broadcast a message to all active alert WebSocket connections.
+    """
+    disconnected_sockets = []
+    for ws in active_connections:
+        try:
+            await ws.send_json(message)
+        except Exception:
+            disconnected_sockets.append(ws)
+            
+    for ws in disconnected_sockets:
+        if ws in active_connections:
+            active_connections.remove(ws)

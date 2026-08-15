@@ -100,6 +100,7 @@ python -m backend.main
    ```
 * **Host Address:** `http://localhost:5173`
 * Open this URL in your web browser to access the full OrbitGuard dashboard!
+* **💡 Presentation Tip:** Click the prominent **"▶ HACKATHON DEMO TOUR"** button in the Topbar to run a hands-free 60-second guided walkthrough showing off the Cesium 3D camera tracking, collision math, ground observation refinement, and AI Copilot automated resolution!
 
 ---
 

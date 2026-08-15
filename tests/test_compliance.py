@@ -86,6 +86,8 @@ def test_generate_compliance_brief_fallback():
     """
     Verify the fallback briefing generator builds a valid structured text description.
     """
+    from unittest.mock import patch
+    
     event_data = {
         "primary_name": "ISS (ZARYA)",
         "primary_norad": 25544,
@@ -97,7 +99,9 @@ def test_generate_compliance_brief_fallback():
         "operator_name": "SpaceOps India"
     }
     
-    brief = generate_compliance_brief(event_data)
+    with patch("ollama.chat", side_effect=Exception("Simulated Ollama Offline")):
+        brief = generate_compliance_brief(event_data)
+        
     assert isinstance(brief, str)
     assert "INSPACE-CAM-2026" in brief
     assert "ISS (ZARYA)" in brief

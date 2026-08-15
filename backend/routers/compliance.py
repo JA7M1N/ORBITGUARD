@@ -70,6 +70,37 @@ async def file_collision_avoidance_maneuver(
     
     briefing = generate_compliance_brief(event_data)
 
+    # 4.5. Propagate spacecraft to TCA using SGP4
+    primary_state = None
+    secondary_state = None
+    if primary and secondary and primary.tle1 and primary.tle2 and secondary.tle1 and secondary.tle2:
+        try:
+            from skyfield.api import load, EarthSatellite
+            ts = load.timescale(builtin=True)
+            sat_p = EarthSatellite(primary.tle1, primary.tle2, primary.name, ts)
+            sat_s = EarthSatellite(secondary.tle1, secondary.tle2, secondary.name, ts)
+            
+            tca_utc = conj.tca
+            if tca_utc.tzinfo is None:
+                tca_utc = tca_utc.replace(tzinfo=timezone.utc)
+            else:
+                tca_utc = tca_utc.astimezone(timezone.utc)
+                
+            t_sf = ts.from_datetime(tca_utc)
+            g_p = sat_p.at(t_sf)
+            g_s = sat_s.at(t_sf)
+            
+            primary_state = {
+                "position": g_p.position.km.tolist(),
+                "velocity": g_p.velocity.km_per_s.tolist()
+            }
+            secondary_state = {
+                "position": g_s.position.km.tolist(),
+                "velocity": g_s.velocity.km_per_s.tolist()
+            }
+        except Exception as e:
+            print(f"Error propagating spacecraft during compliance filing: {e}")
+
     # 5. Insert ComplianceFiling record to get ID
     submitted_time = datetime.now(timezone.utc).replace(tzinfo=None)
     filing = ComplianceFiling(
@@ -81,7 +112,10 @@ async def file_collision_avoidance_maneuver(
             "secondary_norad": conj.secondary_norad,
             "miss_distance": conj.miss_distance,
             "pc": conj.pc,
-            "briefing": briefing
+            "briefing": briefing,
+            "primary_state": primary_state,
+            "secondary_state": secondary_state,
+            "covariance_matrix": conj.covariance_matrix
         },
         pdf_path="PENDING",  # Will update after compilation
         status="Filed",
@@ -101,7 +135,10 @@ async def file_collision_avoidance_maneuver(
         "tca": conj.tca,
         "status": filing.status,
         "submitted_at": filing.submitted_at,
-        "briefing": briefing
+        "briefing": briefing,
+        "primary_state": primary_state,
+        "secondary_state": secondary_state,
+        "covariance": conj.covariance_matrix
     }
     
     try:

@@ -8,7 +8,7 @@ from skyfield.positionlib import Geocentric
 
 from orbital_mechanics.decay_engine import get_atmospheric_density, decay_derivatives
 
-def generate_reentry_corridor(tle_line1: str, tle_line2: str, f10_7: float = 150.0, ap: float = 15.0, num_runs: int = 1000) -> dict:
+def generate_reentry_corridor(tle_line1: str, tle_line2: str, f10_7: float = 150.0, ap: float = 15.0, num_runs: int = 1000, density_multiplier: float = 1.0) -> dict:
     """
     Propagates a satellite downward from its initial state to the 80 km breakup threshold
     running parallel (vectorized) Monte Carlo simulations with perturbed ballistic coefficients 
@@ -136,7 +136,7 @@ def generate_reentry_corridor(tle_line1: str, tle_line2: str, f10_7: float = 150
         lon_nom = (lon_nom + 180.0) % 360.0 - 180.0
         lat_nom = np.degrees(np.arcsin(r_nom[2] / np.linalg.norm(r_nom)))
         
-        rho_nom = get_atmospheric_density(t_curr, alt_nom, lat_nom, lon_nom, f10_7, f10_7, ap)
+        rho_nom = get_atmospheric_density(t_curr, alt_nom, lat_nom, lon_nom, f10_7, f10_7, ap, density_multiplier)
         
         from orbital_mechanics.solar_weather import get_drag_coefficient_scaler
         scaler = get_drag_coefficient_scaler(f10_7)

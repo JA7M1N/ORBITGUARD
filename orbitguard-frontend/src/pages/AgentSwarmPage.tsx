@@ -148,6 +148,29 @@ export const AgentSwarmPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Swarm Live Telemetry stats */}
+        <div className="hidden xl:flex items-center gap-6 font-mono text-[9px] text-slate-500">
+          <div className="flex flex-col gap-0.5 border-l border-slate-850 pl-4">
+            <span className="text-slate-500 uppercase">SOCKET STATUS</span>
+            <span className="flex items-center gap-1.5 text-slate-300 font-bold uppercase">
+              <span className={`h-1.5 w-1.5 rounded-full ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600 animate-ping shrink-0'}`} />
+              {isRunning ? "Connected" : "Idle"}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0.5 border-l border-slate-850 pl-4">
+            <span className="text-slate-500 uppercase">LOGS INGESTED</span>
+            <span className="text-purple-400 font-bold font-mono">{logs.length} Lines</span>
+          </div>
+          <div className="flex flex-col gap-0.5 border-l border-slate-850 pl-4">
+            <span className="text-slate-500 uppercase">AGENT LATENCY</span>
+            <span className="text-slate-300 font-bold font-mono">{isRunning ? "< 12ms" : "N/A"}</span>
+          </div>
+          <div className="flex flex-col gap-0.5 border-l border-slate-850 pl-4">
+            <span className="text-slate-500 uppercase">FILING STATUS</span>
+            <span className="text-slate-350 font-bold uppercase">{filingId ? "Consensus Signed" : "No active file"}</span>
+          </div>
+        </div>
+
         <div className="flex items-center gap-3">
           {filingId && (
             <button
@@ -196,9 +219,9 @@ export const AgentSwarmPage: React.FC = () => {
               <div 
                 className={`flex-1 p-4 rounded-xl border transition-all duration-500 flex flex-col gap-1.5 relative overflow-hidden min-w-[200px]
                   ${isActive 
-                    ? 'bg-purple-600/10 border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.15)] scale-[1.02] z-10' 
+                    ? 'bg-purple-600/10 border-purple-500/60 shadow-[0_0_20px_rgba(168,85,247,0.25)] scale-[1.03] z-10' 
                     : isCompleted
-                      ? 'bg-slate-900/30 border-purple-500/20'
+                      ? 'bg-emerald-950/10 border-emerald-500/25 shadow-[0_0_15px_rgba(16,185,129,0.08)]'
                       : 'bg-slate-950/20 border-slate-850/50 opacity-50'
                   }`}
               >

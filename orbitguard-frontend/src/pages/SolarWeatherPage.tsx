@@ -15,7 +15,7 @@ import {
   Tooltip as ChartTooltip,
   Legend
 } from 'recharts';
-import { Sun, Shield, Gauge, Activity, Info, Zap, AlertTriangle, Timer, Flame, RefreshCw } from 'lucide-react';
+import { Sun, Shield, Gauge, Activity, Info, Zap, AlertTriangle, Timer, Flame } from 'lucide-react';
 
 interface WeatherHistorical {
   date: string;

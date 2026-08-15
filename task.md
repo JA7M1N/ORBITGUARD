@@ -1,4 +1,0 @@
-- `[ ]` declare country filter state variable in SatelliteCatalogPage.tsx
-- `[ ]` build UI dropdown select element for Country/Operator filtering in Directory panel
-- `[ ]` update filtering function to support both country filter and search query
-- `[ ]` run tests and frontend build to verify compilation

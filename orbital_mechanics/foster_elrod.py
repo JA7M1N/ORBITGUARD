@@ -16,107 +16,15 @@ def calculate_foster_elrod(primary_state, secondary_state, primary_cov, secondar
     Returns:
     - Pc: float, the numerical probability of collision (0.0 to 1.0)
     """
-    r_p, v_p = np.array(primary_state[0]), np.array(primary_state[1])
-    r_s, v_s = np.array(secondary_state[0]), np.array(secondary_state[1])
-    
-    # 1. Compute relative position and velocity
-    r = r_p - r_s  # Relative position vector (km)
-    v = v_p - v_s  # Relative velocity vector (km/s)
-    
-    v_norm = np.linalg.norm(v)
-    if v_norm < 1e-6:
-        # Relative velocity is zero, no encounter defined
-        return 0.0
-        
-    # 2. Define the B-plane (encounter plane) coordinate system
-    e_z = v / v_norm  # Unit vector along relative velocity
-    
-    # Numerically stable construction of perpendicular basis vectors e_x and e_y
-    if abs(e_z[0]) < 0.9:
-        ref = np.array([1.0, 0.0, 0.0])
-    else:
-        ref = np.array([0.0, 1.0, 0.0])
-        
-    e_x = np.cross(ref, e_z)
-    e_x /= np.linalg.norm(e_x)
-    e_y = np.cross(e_z, e_x)
-    
-    # Projection matrix P (2x3)
-    P = np.vstack([e_x, e_y])
-    
-    # 3. Project relative position and combined covariance onto B-plane
-    r_B = P.dot(r)  # 2D relative position in B-plane (km)
-    
-    C_p = np.array(primary_cov)
-    C_s = np.array(secondary_cov)
-    C = C_p + C_s   # Combined covariance matrix (km^2)
-    
-    Sigma_B = P.dot(C).dot(P.T)  # 2D B-plane covariance matrix
-    
-    # 4. Diagonalize Sigma_B (find principal axes of uncertainty ellipse)
-    eigenvalues, eigenvectors = np.linalg.eigh(Sigma_B)
-    
-    # Sort descending
-    idx = np.argsort(eigenvalues)[::-1]
-    eigenvalues = eigenvalues[idx]
-    eigenvectors = eigenvectors[:, idx]
-    
-    sigma_x2 = eigenvalues[0]
-    sigma_y2 = eigenvalues[1]
-    
-    sigma_x = np.sqrt(max(sigma_x2, 1e-30))
-    sigma_y = np.sqrt(max(sigma_y2, 1e-30))
-    
-    # Rotate the B-plane relative position vector into diagonal frame
-    r_B_prime = eigenvectors.T.dot(r_B)
-    x_m = r_B_prime[0]
-    y_m = r_B_prime[1]
-    
-    # Convert HBR from meters to kilometers
-    R_km = hbr / 1000.0
-    
-    # 5. Compute collision probability using Chan's analytical Rician series
-    sigma = np.sqrt(sigma_x * sigma_y)
-    
-    # Safe check for near-zero uncertainty
-    if sigma < 1e-9:
-        miss_dist = np.linalg.norm(r_B)
-        return 1.0 if miss_dist <= R_km else 0.0
-        
-    u = (x_m / sigma_x) ** 2 + (y_m / sigma_y) ** 2  # Mahalanobis distance squared
-    v_dist = np.sqrt(u) * sigma
-    
-    alpha = v_dist / sigma
-    beta = R_km / sigma
-    
-    if alpha == 0.0 and beta == 0.0:
-        return 0.0
-        
-    x = alpha * beta
-    factor = np.exp(-0.5 * (alpha - beta) ** 2)
-    tol = 1e-16
-    max_terms = 500
-    
-    if beta >= alpha:
-        ratio = alpha / beta if beta > 0.0 else 0.0
-        term_sum = 0.0
-        for k in range(max_terms):
-            term = (ratio ** k) * ive(k, x)
-            term_sum += term
-            if term < tol * term_sum and k > 5:
-                break
-        Pc = 1.0 - factor * term_sum
-    else:
-        ratio = beta / alpha
-        term_sum = 0.0
-        for k in range(1, max_terms):
-            term = (ratio ** k) * ive(k, x)
-            term_sum += term
-            if term < tol * term_sum and k > 5:
-                break
-        Pc = factor * term_sum
-        
-    return float(max(0.0, min(1.0, Pc)))
+    from orbital_mechanics.chan_pc import calculate_chan_pc_detailed
+    res = calculate_chan_pc_detailed(
+        primary_state=primary_state,
+        secondary_state=secondary_state,
+        primary_cov=primary_cov,
+        secondary_cov=secondary_cov,
+        hbr=hbr
+    )
+    return res["pc"]
 
 if __name__ == "__main__":
     print("Running Foster-Elrod / Chan Pc Calculator Standalone Script...")

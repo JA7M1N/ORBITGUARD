@@ -81,6 +81,53 @@ async def get_conjunction_details(event_id: int, db: AsyncSession = Depends(get_
         else:
             covariance_matrix = ev.covariance_matrix
 
+    # 5. Compute explainable Pc metrics
+    explain_data = None
+    if primary and secondary and primary.tle1 and primary.tle2 and secondary.tle1 and secondary.tle2:
+        try:
+            from datetime import timezone
+            from skyfield.api import load, EarthSatellite
+            from orbital_mechanics.data_exporter import generate_realistic_covariance
+            from orbital_mechanics.chan_pc import calculate_chan_pc_detailed
+            
+            ts = load.timescale(builtin=True)
+            sat_p = EarthSatellite(primary.tle1, primary.tle2, primary.name, ts)
+            sat_s = EarthSatellite(secondary.tle1, secondary.tle2, secondary.name, ts)
+            
+            tca_utc = ev.tca
+            if tca_utc.tzinfo is None:
+                tca_utc = tca_utc.replace(tzinfo=timezone.utc)
+            else:
+                tca_utc = tca_utc.astimezone(timezone.utc)
+                
+            t_sf = ts.from_datetime(tca_utc)
+            g_p = sat_p.at(t_sf)
+            g_s = sat_s.at(t_sf)
+            
+            p_state = (g_p.position.km.tolist(), g_p.velocity.km_per_s.tolist())
+            s_state = (g_s.position.km.tolist(), g_s.velocity.km_per_s.tolist())
+            
+            p_cov = covariance_matrix.get("p_cov") if (covariance_matrix and isinstance(covariance_matrix, dict)) else None
+            s_cov = covariance_matrix.get("s_cov") if (covariance_matrix and isinstance(covariance_matrix, dict)) else None
+            
+            if not p_cov or not s_cov:
+                p_cov = generate_realistic_covariance(p_state[0], p_state[1]).tolist()
+                s_cov = generate_realistic_covariance(s_state[0], s_state[1]).tolist()
+                
+            detailed_res = calculate_chan_pc_detailed(p_state, s_state, p_cov, s_cov, hbr=10.0)
+            explain_data = {
+                "miss_distance_km": detailed_res["miss_distance_km"],
+                "sigma_major": detailed_res["sigma_major"],
+                "sigma_minor": detailed_res["sigma_minor"],
+                "pc_terms": {
+                    "u": detailed_res["u"],
+                    "alpha": detailed_res["alpha"],
+                    "beta": detailed_res["beta"]
+                }
+            }
+        except Exception as ex:
+            print(f"Error computing explainable Pc: {ex}")
+
     return {
         "id": ev.id,
         "primary": {
@@ -102,5 +149,6 @@ async def get_conjunction_details(event_id: int, db: AsyncSession = Depends(get_
         },
         "pc": ev.pc,
         "covariance_matrix": covariance_matrix,
-        "compliance_status": ev.compliance_status
+        "compliance_status": ev.compliance_status,
+        "explain": explain_data
     }

@@ -63,7 +63,7 @@ class SwarmOrchestrator:
         sats_subset = catalog[:limit_sats] if 'catalog' in locals() else []
         if sats_subset:
             try:
-                states = propagate_catalog_batch(sats_subset, time_window_hours=48, step_minutes=20)
+                states = await asyncio.to_thread(propagate_catalog_batch, sats_subset, time_window_hours=48, step_minutes=20)
                 yield {
                     "percentage": 40,
                     "agent": "SCREENING_AGENT",
@@ -72,7 +72,7 @@ class SwarmOrchestrator:
                 }
                 await asyncio.sleep(0.4)
                 
-                conjs = screen_conjunctions(states, threshold_km=10.0)
+                conjs = await asyncio.to_thread(screen_conjunctions, states, threshold_km=10.0)
                 num_conjs = len(conjs)
                 yield {
                     "percentage": 50,
@@ -116,7 +116,8 @@ class SwarmOrchestrator:
                 cov_p = generate_realistic_covariance(r_p, v_p)
                 cov_s = generate_realistic_covariance(r_s, v_s)
                 
-                pc_val = calculate_foster_elrod(
+                pc_val = await asyncio.to_thread(
+                    calculate_foster_elrod,
                     conj["primary_state"], conj["secondary_state"],
                     cov_p, cov_s, hbr=10.0
                 )
@@ -156,12 +157,13 @@ class SwarmOrchestrator:
         try:
             weather = fetch_live_noaa_data()
             # Run a small 10-run Monte Carlo corridor simulation to keep execution snappy
-            corridor = generate_reentry_corridor(
-                "1 25544U 98067A   20351.52044444  .00001000  00000-0  26000-4 0  9998",
-                "2 25544  51.6467  44.5727 0002164  73.9623  34.8726 15.49280000260408",
-                weather["f10_7"], weather["ap"],
-                num_runs=10
-            )
+            corridor = await asyncio.to_thread(
+                    generate_reentry_corridor,
+                    "1 25544U 98067A   20351.52044444  .00001000  00000-0  26000-4 0  9998",
+                    "2 25544  51.6467  44.5727 0002164  73.9623  34.8726 15.49280000260408",
+                    weather["f10_7"], weather["ap"],
+                    num_runs=10
+                )
             mean_decay_sec = corridor["properties"]["mean_decay_time_sec"]
             yield {
                 "percentage": 85,
@@ -264,7 +266,7 @@ class SwarmOrchestrator:
                         "submitted_at": filing.submitted_at,
                         "briefing": briefing
                     }
-                    pdf_path = compile_pdf_document(filing_data)
+                    pdf_path = await asyncio.to_thread(compile_pdf_document, filing_data)
                     filing.pdf_path = pdf_path
                     await session.commit()
                     filing_id_val = filing.id

@@ -194,3 +194,31 @@ def test_get_solar():
     assert "current" in data
     assert "alert_metrics" in data
     assert len(data["trend_history"]) == 7
+
+def test_export_satellite_opm():
+    # Test valid export
+    res = client.post("/api/satellites/25544/export-opm", json={"maneuver_dv": 12.5})
+    assert res.status_code == 200
+    assert "text/plain" in res.headers["content-type"]
+    assert "attachment; filename=CCSDS_OPM_ISS_(ZARYA)_25544.txt" in res.headers["content-disposition"]
+    
+    content = res.text
+    assert "CCSDS_OPM_VERS = 2.0" in content
+    assert "OBJECT_NAME = ISS (ZARYA)" in content
+    assert "OBJECT_ID = 98067A" in content
+    assert "REF_FRAME = TEME" in content
+    assert "X = 1200.000000" in content
+    assert "Y = 2300.000000" in content
+    assert "Z = 3400.000000" in content
+    assert "X_DOT = 7.100000000" in content
+    assert "Y_DOT = 1.500000000" in content
+    assert "Z_DOT = -2.200000000" in content
+    assert "MAN_REF_FRAME = RIC" in content
+    assert "MAN_DV_1 = 0.012500000" in content
+    assert "MAN_DV_2 = 0.000000000" in content
+    assert "MAN_DV_3 = 0.000000000" in content
+
+def test_export_satellite_opm_not_found():
+    res = client.post("/api/satellites/999999/export-opm", json={"maneuver_dv": 5.0})
+    assert res.status_code == 404
+

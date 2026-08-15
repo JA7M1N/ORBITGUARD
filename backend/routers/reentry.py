@@ -87,7 +87,7 @@ async def get_reentry_alerts(db: AsyncSession = Depends(get_db)):
         print(f"Error fetching solar forecast in reentry router: {e}")
         
     import datetime
-    now_dt = datetime.datetime.utcnow()
+    now_dt = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     
     response_alerts = []
     for alert in alerts:

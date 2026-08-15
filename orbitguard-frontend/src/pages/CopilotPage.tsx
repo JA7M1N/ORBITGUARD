@@ -1,14 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
-import { Send, Bot, User, MessageSquare, AlertTriangle, Cpu, Sparkles, Trash2 } from 'lucide-react';
+import { Send, Bot, User, Cpu, Sparkles, Trash2 } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
 
-export const CopilotPage: React.FC = () => {
+interface CopilotPageProps {
+  tourQuery?: string;
+  onTourQuerySent?: () => void;
+}
+
+export const CopilotPage: React.FC<CopilotPageProps> = ({ tourQuery, onTourQuerySent }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -28,6 +33,39 @@ export const CopilotPage: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
+
+  const [localTourText, setLocalTourText] = useState<string>('');
+
+  useEffect(() => {
+    if (tourQuery && tourQuery.length > 0) {
+      setLocalTourText(tourQuery);
+      if (onTourQuerySent) {
+        onTourQuerySent(); // Immediately notify parent to clear the state
+      }
+    }
+  }, [tourQuery, onTourQuerySent]);
+
+  // Automated Typing Simulation for Hackathon Tour (resilient to page changes)
+  useEffect(() => {
+    if (localTourText && localTourText.length > 0) {
+      let currentText = "";
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index >= localTourText.length) {
+          clearInterval(interval);
+          setTimeout(() => {
+            handleSend(localTourText);
+            setLocalTourText(''); // Done typing
+          }, 800);
+          return;
+        }
+        currentText += localTourText[index];
+        setInput(currentText);
+        index++;
+      }, 25); // Fast typing simulation
+      return () => clearInterval(interval);
+    }
+  }, [localTourText]);
 
   const handleSend = async (text: string) => {
     if (!text.trim() || loading) return;

@@ -1,10 +1,35 @@
 import re
+import time
+import json
+import asyncio
 from typing import List, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import ollama
+
+class QueryCache:
+    def __init__(self, ttl_seconds: float = 300.0):
+        self.cache = {}
+        self.ttl = ttl_seconds
+
+    def get(self, key: str) -> Optional[dict]:
+        if key in self.cache:
+            entry = self.cache[key]
+            if time.time() - entry["timestamp"] < self.ttl:
+                return entry["data"]
+            else:
+                del self.cache[key] # Expired
+        return None
+
+    def set(self, key: str, data: dict):
+        self.cache[key] = {
+            "timestamp": time.time(),
+            "data": data
+        }
+
+copilot_cache = QueryCache(ttl_seconds=300.0)
 
 from backend.db.connection import get_db
 from backend.db.models import Satellite, ConjunctionEvent, ReentryAlert
@@ -96,6 +121,12 @@ async def copilot_chat(payload: ChatPayload, db: AsyncSession = Depends(get_db))
     query = payload.message
     history = payload.history
     
+    # 0. Check cache
+    cache_key = f"{query}|||{json.dumps([{'role': h.role, 'content': h.content} for h in history])}"
+    cached_res = copilot_cache.get(cache_key)
+    if cached_res:
+        return cached_res
+        
     # 1. Parse query and extract matching database contexts
     context_items = []
     
@@ -212,7 +243,12 @@ You are running locally on the operator's machine.
 Answer the user's questions professionally, focusing on orbital mechanics, collision risks, and satellite safety.
 Use the DATABASE CONTEXT provided below to answer specific questions about satellite states.
 If the database context is empty or doesn't address the query, use your general knowledge of space dynamics, but clarify that you are speaking generally.
-Keep answers concise, markdown-formatted, and professional.
+
+STRICT FORMATTING RULE:
+- Your response MUST be structured using Markdown tables, lists, and bullet points.
+- DO NOT output any introductory conversational filler (such as "Sure, I can help with that" or "Here is the report").
+- Directly begin with the requested data table or bulleted summary.
+- Keep the tone extremely professional, concise, and regulatory-grade.
 """
     
     # 3. Format message history for Ollama
@@ -225,12 +261,18 @@ Keep answers concise, markdown-formatted, and professional.
     # Add current user query
     ollama_messages.append({"role": "user", "content": query})
     
-    # 4. Call Local LLM via Ollama
+    # 4. Call Local LLM via Ollama with 5-second timeout and background thread offloading
     try:
-        response = ollama.chat(model="llama3.2", messages=ollama_messages)
+        response = await asyncio.wait_for(
+            asyncio.to_thread(ollama.chat, model="llama3.2", messages=ollama_messages),
+            timeout=5.0
+        )
         content = response["message"]["content"]
-        return {"status": "success", "response": content, "mode": "online"}
-    except Exception as e:
-        print(f"Warning: local LLM (Ollama) unreachable or errored: {e}. Falling back to rule-based template.")
+        res = {"status": "success", "response": content, "mode": "online"}
+        copilot_cache.set(cache_key, res)
+        return res
+    except (asyncio.TimeoutError, Exception) as e:
+        print(f"Warning: local LLM (Ollama) unreachable or timed out: {e}. Falling back to rule-based template.")
         fallback_content = generate_offline_fallback(context_items, query)
-        return {"status": "success", "response": fallback_content, "mode": "offline"}
+        res = {"status": "success", "response": fallback_content, "mode": "offline"}
+        return res

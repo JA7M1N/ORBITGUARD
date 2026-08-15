@@ -164,9 +164,19 @@ export const ReentryPage: React.FC = () => {
 
       {/* RIGHT PANE: Selected candidate details, Leaflet map, and Charts */}
       <div className="flex-1 flex flex-col gap-5 p-5 glassmorphism rounded-2xl border border-slate-800/80 overflow-y-auto">
-        {loadingMap || !selectedCandidate ? (
+        {loadingList ? (
           <div className="flex-1 flex items-center justify-center font-mono text-xs text-slate-500">
             LOADING DECAY SIMULATION GEO-DATABASE...
+          </div>
+        ) : candidates.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500 gap-3 border border-dashed border-slate-850 rounded-xl">
+            <CheckCircle className="h-12 w-12 text-emerald-500/80" />
+            <h4 className="text-sm font-semibold text-slate-400 font-sans">Orbit Safe | No Active Reentry Threats</h4>
+            <p className="text-xs max-w-sm font-sans text-slate-500">All cataloged spacecraft have altitudes in stable orbital zones. Debris dispersion footprints and Leaflet landing projection overlays will mount dynamically here upon decay alert triggers.</p>
+          </div>
+        ) : loadingMap || !selectedCandidate ? (
+          <div className="flex-1 flex items-center justify-center font-mono text-xs text-slate-500">
+            LOADING SELECTED CANDIDATE GEO-DATA...
           </div>
         ) : (
           <div className="flex flex-col gap-6">

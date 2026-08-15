@@ -6,10 +6,13 @@ import {
   AlertTriangle, 
   ShieldAlert, 
   ChevronRight, 
+  ChevronDown,
+  HelpCircle,
   FileText, 
   CheckCircle, 
   Navigation,
-  Activity
+  Activity,
+  Terminal
 } from 'lucide-react';
 import type { ConjunctionEvent, ConjunctionDetails } from '../types';
 
@@ -181,12 +184,110 @@ export const ConjunctionPage: React.FC<ConjunctionPageProps> = ({ onInitiateFili
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [threatFilter, setThreatFilter] = useState<'all' | 'critical' | 'warning' | 'nominal'>('all');
+  const [isWhyPcExpanded, setIsWhyPcExpanded] = useState<boolean>(false);
 
   useEffect(() => {
     setRadialBurn(0);
     setInTrackBurn(0);
     setCrossTrackBurn(0);
+    setNegFeedback(null);
+    setNegRadial(0);
+    setNegInTrack(0);
+    setNegCrossTrack(0);
   }, [selectedId]);
+
+  const [negotiation, setNegotiation] = useState<any | null>(null);
+  const [role, setRole] = useState<'primary' | 'secondary'>('primary');
+  const [negRadial, setNegRadial] = useState<number>(0);
+  const [negInTrack, setNegInTrack] = useState<number>(0);
+  const [negCrossTrack, setNegCrossTrack] = useState<number>(0);
+  const [isSubmittingProposal, setIsSubmittingProposal] = useState<boolean>(false);
+  const [negFeedback, setNegFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setNegotiation(null);
+      return;
+    }
+    const fetchNegotiation = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/negotiations/${selectedId}`);
+        setNegotiation(response.data);
+      } catch (err) {
+        console.error("Error fetching negotiation details:", err);
+      }
+    };
+    fetchNegotiation();
+  }, [selectedId]);
+
+  // Automated debounced recalculation for operator collaborative sliders
+  useEffect(() => {
+    if (!selectedId) return;
+    if (negRadial === 0 && negInTrack === 0 && negCrossTrack === 0) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const response = await axios.post(`${API_BASE_URL}/api/negotiations/${selectedId}/propose`, {
+          operator_role: role,
+          dv_radial: negRadial,
+          dv_in_track: negInTrack,
+          dv_cross_track: negCrossTrack,
+          lead_time_seconds: 3600.0
+        });
+        setNegotiation(response.data.negotiation);
+        setNegFeedback(`Live Recalculation (Debounced): Pc = ${response.data.recalculated_pc.toExponential(2)} | Miss Distance = ${response.data.recalculated_miss_distance_km.toFixed(3)} km`);
+      } catch (err: any) {
+        console.error("Error in debounced recalculation:", err);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [negRadial, negInTrack, negCrossTrack, selectedId, role]);
+
+  const handleProposeManeuver = async () => {
+    if (!selectedId) return;
+    setIsSubmittingProposal(true);
+    setNegFeedback(null);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/negotiations/${selectedId}/propose`, {
+        operator_role: role,
+        dv_radial: negRadial,
+        dv_in_track: negInTrack,
+        dv_cross_track: negCrossTrack,
+        lead_time_seconds: 3600.0
+      });
+      setNegotiation(response.data.negotiation);
+      setNegFeedback(`Proposal verification completed! Post-Maneuver Pc: ${response.data.recalculated_pc.toExponential(2)} | Miss Distance: ${response.data.recalculated_miss_distance_km.toFixed(3)} km`);
+    } catch (err: any) {
+      console.error("Error submitting proposal:", err);
+      setNegFeedback(err.response?.data?.detail || "Failed to submit proposal.");
+    } finally {
+      setIsSubmittingProposal(false);
+    }
+  };
+
+  const handleResolveNegotiation = async (action: 'approve' | 'reject') => {
+    if (!selectedId) return;
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/negotiations/${selectedId}/resolve`, {
+        operator_role: role,
+        action
+      });
+      setNegotiation(response.data);
+      if (response.data.status === 'Accepted') {
+        setNegFeedback("Maneuver protocol agreed! Conjunction hazard status: RESOLVED.");
+        const listRes = await axios.get(`${API_BASE_URL}/api/conjunctions`);
+        if (listRes.data && listRes.data.results) {
+          setConjunctions(listRes.data.results);
+        }
+      } else {
+        setNegFeedback(`Proposal review submitted: ${action.toUpperCase()}D.`);
+      }
+    } catch (err: any) {
+      console.error("Error resolving negotiation:", err);
+      setNegFeedback(err.response?.data?.detail || "Failed to resolve negotiation.");
+    }
+  };
 
   const x_base = details?.relative_vectors?.cross_track || 0;
   const y_base = details?.relative_vectors?.radial || 0;
@@ -422,6 +523,201 @@ export const ConjunctionPage: React.FC<ConjunctionPageProps> = ({ onInitiateFili
                     </div>
                   </div>
                 </div>
+
+                {/* Collapsible Explainable Pc Panel */}
+                {details.explain && (
+                  <div className="p-4 bg-slate-900/40 border border-slate-800/80 rounded-xl flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsWhyPcExpanded(!isWhyPcExpanded)}
+                      className="w-full flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider focus:outline-none cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5 text-blue-450">
+                        <HelpCircle className="h-3.5 w-3.5 text-blue-400" />
+                        Why this Pc? (Explainable Math)
+                      </span>
+                      {isWhyPcExpanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+                    </button>
+                    
+                    {isWhyPcExpanded && (
+                      <div className="flex flex-col gap-3 font-mono text-[10px] text-slate-300 border-t border-slate-850 pt-3">
+                        <div className="flex justify-between py-1 border-b border-slate-800/20">
+                          <span className="text-slate-500">B-PLANE MISS DISTANCE:</span>
+                          <span className="font-semibold text-slate-200">{(details.explain.miss_distance_km * 1000).toFixed(1)} m</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/20">
+                          <span className="text-slate-500">UNCERTAINTY MAJOR AXIS (σ_major):</span>
+                          <span className="font-semibold text-slate-200">{(details.explain.sigma_major * 1000).toFixed(1)} m</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/20">
+                          <span className="text-slate-500">UNCERTAINTY MINOR AXIS (σ_minor):</span>
+                          <span className="font-semibold text-slate-200">{(details.explain.sigma_minor * 1000).toFixed(1)} m</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/20">
+                          <span className="text-slate-500">MAHALANOBIS SPATIAL OFFSET (u):</span>
+                          <span className="font-semibold text-slate-200 font-bold">{details.explain.pc_terms.u.toFixed(4)}</span>
+                        </div>
+                        <p className="text-[9px] text-slate-450 leading-relaxed font-sans mt-1">
+                          The collision probability (Pc) is solved analytically using Chan's Rician series in the 2D B-plane encounter frame. With a miss distance of {(details.explain.miss_distance_km * 1000).toFixed(0)}m relative to a combined major uncertainty of ±{(details.explain.sigma_major * 1000).toFixed(0)}m, the offset lies well within the high-probability hazard zone, yielding Pc = {details.pc.toExponential(2)}.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Collaborative Maneuver Coordinator Card */}
+                {negotiation && (
+                  <div className="p-4 bg-slate-900/40 border border-slate-800/80 rounded-xl flex flex-col gap-4 relative">
+                    <div className="text-[10px] font-bold text-purple-400 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-mono">
+                        <Terminal className="h-3.5 w-3.5" />
+                        Collaborative Maneuver Coordinator
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[8px] font-semibold font-mono tracking-wider uppercase
+                        ${negotiation.status === 'Accepted' ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/20' :
+                          negotiation.status === 'Rejected' ? 'bg-red-950 text-red-400 border border-red-500/20' :
+                          'bg-amber-950 text-amber-400 border border-amber-500/20'
+                        }`}
+                      >
+                        Status: {negotiation.status}
+                      </span>
+                    </div>
+
+                    <p className="text-[9px] text-slate-400 leading-relaxed font-sans">
+                      Verify and coordinate avoidance burns collaboratively with counter-operator. Propose RIC Delta-V parameters, run Clohessy-Wiltshire verification, and sign consensus filings.
+                    </p>
+
+                    {/* Operator selector role for mock demo purposes */}
+                    <div className="flex gap-2 p-1 bg-slate-950/60 rounded-lg border border-slate-900">
+                      <button
+                        onClick={() => { setRole('primary'); setNegFeedback(null); }}
+                        className={`flex-1 py-1 text-center font-mono text-[9px] font-bold rounded cursor-pointer transition-colors
+                          ${role === 'primary' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20' : 'text-slate-500'}`}
+                      >
+                        ROLE: PRIMARY OPERATOR ({details.primary.operator})
+                      </button>
+                      <button
+                        onClick={() => { setRole('secondary'); setNegFeedback(null); }}
+                        className={`flex-1 py-1 text-center font-mono text-[9px] font-bold rounded cursor-pointer transition-colors
+                          ${role === 'secondary' ? 'bg-purple-600/15 text-purple-400 border border-purple-500/20' : 'text-slate-500'}`}
+                      >
+                        ROLE: COUNTERPART ({details.secondary.operator})
+                      </button>
+                    </div>
+
+                    {/* Proposed burns details columns */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-[9px]">
+                      {/* Primary proposal details */}
+                      <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-900 flex flex-col gap-1.5">
+                        <div className="text-[8px] font-bold text-slate-500 uppercase">Primary Proposal</div>
+                        {negotiation.primary_maneuver ? (
+                          <div className="flex flex-col gap-1 text-slate-350">
+                            <div>Radial: <span className="text-slate-200 font-semibold">{negotiation.primary_maneuver.dv_radial.toFixed(2)} m/s</span></div>
+                            <div>In-Track: <span className="text-slate-200 font-semibold">{negotiation.primary_maneuver.dv_in_track.toFixed(2)} m/s</span></div>
+                            <div>Cross-Track: <span className="text-slate-200 font-semibold">{negotiation.primary_maneuver.dv_cross_track.toFixed(2)} m/s</span></div>
+                            <div className="mt-1 text-[8px] text-emerald-500">Sign-off: {negotiation.primary_status}</div>
+                          </div>
+                        ) : (
+                          <div className="text-slate-600 italic py-2">No proposal submitted.</div>
+                        )}
+                      </div>
+
+                      {/* Secondary proposal details */}
+                      <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-900 flex flex-col gap-1.5">
+                        <div className="text-[8px] font-bold text-slate-500 uppercase">Counterpart Proposal</div>
+                        {negotiation.secondary_maneuver ? (
+                          <div className="flex flex-col gap-1 text-slate-350">
+                            <div>Radial: <span className="text-slate-200 font-semibold">{negotiation.secondary_maneuver.dv_radial.toFixed(2)} m/s</span></div>
+                            <div>In-Track: <span className="text-slate-200 font-semibold">{negotiation.secondary_maneuver.dv_in_track.toFixed(2)} m/s</span></div>
+                            <div>Cross-Track: <span className="text-slate-200 font-semibold">{negotiation.secondary_maneuver.dv_cross_track.toFixed(2)} m/s</span></div>
+                            <div className="mt-1 text-[8px] text-emerald-500">Sign-off: {negotiation.secondary_status}</div>
+                          </div>
+                        ) : (
+                          <div className="text-slate-600 italic py-2">No proposal submitted.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Propose a burn form section */}
+                    {negotiation.status !== 'Accepted' && (
+                      <div className="flex flex-col gap-3 border-t border-slate-850 pt-3">
+                        <div className="text-[8px] font-bold text-slate-500 uppercase font-mono">Propose Delta-V Maneuver Burn</div>
+                        
+                        <div className="flex flex-col gap-2 font-mono text-[9px] text-slate-400">
+                          <div className="flex justify-between items-center gap-4">
+                            <span>Radial Burn: {negRadial.toFixed(1)} m/s</span>
+                            <input
+                              type="range"
+                              min="-10.0"
+                              max="10.0"
+                              step="0.5"
+                              value={negRadial}
+                              onChange={(e) => setNegRadial(parseFloat(e.target.value))}
+                              className="w-32 accent-purple-500 h-1 bg-slate-950 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex justify-between items-center gap-4">
+                            <span>In-Track Burn: {negInTrack.toFixed(1)} m/s</span>
+                            <input
+                              type="range"
+                              min="-10.0"
+                              max="10.0"
+                              step="0.5"
+                              value={negInTrack}
+                              onChange={(e) => setNegInTrack(parseFloat(e.target.value))}
+                              className="w-32 accent-purple-500 h-1 bg-slate-950 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex justify-between items-center gap-4">
+                            <span>Cross-Track Burn: {negCrossTrack.toFixed(1)} m/s</span>
+                            <input
+                              type="range"
+                              min="-10.0"
+                              max="10.0"
+                              step="0.5"
+                              value={negCrossTrack}
+                              onChange={(e) => setNegCrossTrack(parseFloat(e.target.value))}
+                              className="w-32 accent-purple-500 h-1 bg-slate-950 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleProposeManeuver}
+                          disabled={isSubmittingProposal}
+                          className="w-full py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-800 text-slate-100 text-[10px] font-bold rounded-lg cursor-pointer font-sans transition-all"
+                        >
+                          {isSubmittingProposal ? "Propagating CW equations..." : "Propose and Recalculate Risk Profile"}
+                        </button>
+
+                        {/* Sign-off controls: Approve/Reject counterpart proposal */}
+                        {((role === 'primary' && negotiation.secondary_maneuver) || 
+                          (role === 'secondary' && negotiation.primary_maneuver)) && (
+                          <div className="flex gap-2 mt-1">
+                            <button
+                              onClick={() => handleResolveNegotiation('approve')}
+                              className="flex-1 py-1.5 bg-emerald-600/15 hover:bg-emerald-600/30 text-emerald-450 border border-emerald-500/20 text-[9px] font-bold rounded-lg cursor-pointer font-sans transition-all"
+                            >
+                              Approve Partner Maneuver Plan
+                            </button>
+                            <button
+                              onClick={() => handleResolveNegotiation('reject')}
+                              className="flex-1 py-1.5 bg-red-600/15 hover:bg-red-600/30 text-red-450 border border-red-500/20 text-[9px] font-bold rounded-lg cursor-pointer font-sans transition-all"
+                            >
+                              Decline & Propose Counter
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {negFeedback && (
+                      <div className="p-3 bg-purple-950/20 border border-purple-500/25 text-purple-400 rounded-lg font-mono text-[9px] leading-relaxed">
+                        {negFeedback}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Avoidance Maneuver Planner Card (Interactive Sliders) */}
                 <div className="p-4 bg-slate-900/40 border border-slate-800/80 rounded-xl flex flex-col gap-4">

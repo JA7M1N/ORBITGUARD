@@ -1,9 +1,9 @@
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Try to import the installed nrlmsise00 library
 try:
-    import nrlmsise00
+    import nrlmsise00  # type: ignore
     NRLMSISE00_AVAILABLE = True
 except ImportError:
     NRLMSISE00_AVAILABLE = False
@@ -48,7 +48,7 @@ def get_density_fallback(alt_km: float, f107: float = 150.0, ap: float = 15.0) -
     rho = rho_base * np.clip(f_effect, 0.1, 20.0) * np.clip(ap_effect, 0.5, 5.0)
     return float(rho)
 
-def get_atmospheric_density(time_dt: datetime, alt_km: float, lat_deg: float, lon_deg: float, f107a: float, f107: float, ap: float) -> float:
+def get_atmospheric_density(time_dt: datetime, alt_km: float, lat_deg: float, lon_deg: float, f107a: float, f107: float, ap: float, density_multiplier: float = 1.0) -> float:
     """
     Computes atmospheric density at a given date, altitude, latitude, and longitude.
     Uses NRLMSISE-00 if available, falling back to a high-fidelity numerical approximation.
@@ -58,7 +58,7 @@ def get_atmospheric_density(time_dt: datetime, alt_km: float, lat_deg: float, lo
     """
     if alt_km < 80.0:
         # Below breakup threshold, return high density
-        return 1.8e-5
+        return 1.8e-5 * density_multiplier
         
     if NRLMSISE00_AVAILABLE:
         try:
@@ -76,12 +76,12 @@ def get_atmospheric_density(time_dt: datetime, alt_km: float, lat_deg: float, lo
             # Convert to kg/m^3 by multiplying by 1000.0
             rho = densities[5] * 1000.0
             if not np.isnan(rho) and rho > 0.0:
-                return float(rho)
+                return float(rho * density_multiplier)
         except Exception as e:
             # Fallback on error
             pass
             
-    return get_density_fallback(alt_km, f107, ap)
+    return get_density_fallback(alt_km, f107, ap) * density_multiplier
 
 def accel_gravity_j2(r: np.ndarray) -> np.ndarray:
     """

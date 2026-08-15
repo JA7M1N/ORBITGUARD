@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Viewer, Entity, PolylineGraphics, Globe, ImageryLayer } from 'resium';
+import React, { useState, useEffect } from 'react';
+import { Viewer, Entity, PolylineGraphics, ImageryLayer } from 'resium';
 import * as Cesium from 'cesium';
 
 interface Crater {
@@ -21,19 +21,26 @@ interface LunarGlobeProps {
 }
 
 export const LunarGlobe: React.FC<LunarGlobeProps> = ({ craters, waypoints }) => {
-  const viewerRef = useRef<any>(null);
   const [lunarProvider, setLunarProvider] = useState<any>(null);
 
   // Initialize lunar imagery provider using factory pattern or constructor fallback
   useEffect(() => {
+    // Set default ellipsoid to Moon before rendering the viewer
+    (Cesium.Ellipsoid as any).default = Cesium.Ellipsoid.MOON;
+
     const initImagery = async () => {
       try {
         const url = '/images/moon_texture.jpg';
         let provider;
         if (typeof (Cesium.SingleTileImageryProvider as any).fromUrl === 'function') {
-          provider = await (Cesium.SingleTileImageryProvider as any).fromUrl(url);
+          provider = await (Cesium.SingleTileImageryProvider as any).fromUrl(url, {
+            ellipsoid: Cesium.Ellipsoid.MOON
+          });
         } else {
-          provider = new (Cesium.SingleTileImageryProvider as any)({ url });
+          provider = new (Cesium.SingleTileImageryProvider as any)({ 
+            url,
+            ellipsoid: Cesium.Ellipsoid.MOON
+          });
         }
         setLunarProvider(provider);
       } catch (err) {
@@ -41,11 +48,19 @@ export const LunarGlobe: React.FC<LunarGlobeProps> = ({ craters, waypoints }) =>
       }
     };
     initImagery();
+
+    return () => {
+      // Restore default ellipsoid to Earth (WGS84) on unmount
+      (Cesium.Ellipsoid as any).default = Cesium.Ellipsoid.WGS84;
+    };
   }, []);
 
-  const handleViewerReady = (viewer: any) => {
+  const viewerRefCallback = (viewer: any) => {
+    if (!viewer || !viewer.cesiumElement) return;
+    const cesiumViewer = viewer.cesiumElement;
+
     // 1. Focus camera on the Lunar South Pole (-90 latitude)
-    viewer.camera.setView({
+    cesiumViewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(0, -89.0, 800000), // 800 km altitude
       orientation: {
         heading: Cesium.Math.toRadians(0),
@@ -55,15 +70,19 @@ export const LunarGlobe: React.FC<LunarGlobeProps> = ({ craters, waypoints }) =>
     });
 
     // Disable environment elements not suitable for Moon
-    viewer.scene.skyAtmosphere.show = false;
-    viewer.scene.globe.showWaterEffect = false;
-    viewer.scene.globe.enableLighting = true; // Moon shadows
+    if (cesiumViewer.scene.skyAtmosphere) {
+      cesiumViewer.scene.skyAtmosphere.show = false;
+    }
+    if (cesiumViewer.scene.globe) {
+      cesiumViewer.scene.globe.showWaterEffect = false;
+      cesiumViewer.scene.globe.enableLighting = false; // Disable to ensure Moon surface is always fully visible (not in shadow)
+    }
   };
 
   return (
     <div className="w-full h-full relative rounded-2xl overflow-hidden border border-slate-800/80">
       <Viewer
-        ref={viewerRef}
+        ref={viewerRefCallback}
         full
         timeline={false}
         animation={false}
@@ -73,10 +92,7 @@ export const LunarGlobe: React.FC<LunarGlobeProps> = ({ craters, waypoints }) =>
         sceneModePicker={false}
         baseLayerPicker={false}
         infoBox={true}
-        onReady={handleViewerReady}
         style={{ width: '100%', height: '100%' }}
-        imageryProvider={false} // Disable default Earth base layers
-        globe={new Cesium.Globe(Cesium.Ellipsoid.MOON)}
       >
 
         {/* Render Lunar base map imagery */}

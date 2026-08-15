@@ -62,10 +62,10 @@ async def seed():
             }
         ]
         
-        # Increase seed catalog capacity size to 100 satellites + 4 debris bodies
-        subset = catalog[:100] + debris_items
+        # Increase seed catalog capacity size to 496 satellites + 4 debris bodies (500 total)
+        subset = catalog[:496] + debris_items
         
-        # Propagate states 48 hours forward
+        # Propagate states 48 hours forward with 30-minute steps to keep database size optimal and seed fast
         states = propagate_catalog_batch(subset, time_window_hours=48, step_minutes=30)
         
         # Insert satellites
